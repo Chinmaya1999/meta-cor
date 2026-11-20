@@ -1,0 +1,5 @@
+import type { SVGProps } from "react";
+const base = { viewBox: "0 0 24 24", fill: "currentColor", "aria-hidden": true } as const;
+export const Linkedin = (p: SVGProps<SVGSVGElement>) => <svg {...base} {...p}><path d="M4.98 3.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM3 9.75h4V21H3V9.75zm6.5 0h3.8v1.54h.05c.53-1 1.83-2.04 3.77-2.04 4.03 0 4.78 2.65 4.78 6.1V21h-4v-4.7c0-1.12-.02-2.56-1.56-2.56-1.56 0-1.8 1.22-1.8 2.48V21h-4V9.75z" /></svg>;
+export const Instagram = (p: SVGProps<SVGSVGElement>) => <svg {...base} {...p}><path d="M7 2h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3H7zm5 3.5A4.5 4.5 0 1 1 7.5 12 4.5 4.5 0 0 1 12 7.5zm0 2A2.5 2.5 0 1 0 14.5 12 2.5 2.5 0 0 0 12 9.5zM17.4 6a1.1 1.1 0 1 1-1.1 1.1A1.1 1.1 0 0 1 17.4 6z" /></svg>;
+export const XIcon = (p: SVGProps<SVGSVGElement>) => <svg {...base} {...p}><path d="M17.75 3h3.07l-6.7 7.66L22 21h-6.17l-4.83-6.32L5.47 21H2.4l7.17-8.2L2 3h6.33l4.37 5.78L17.75 3zm-1.08 16.16h1.7L7.4 4.74H5.58l11.09 14.42z" /></svg>;

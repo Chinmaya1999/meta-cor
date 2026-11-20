@@ -1,0 +1,134 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  API_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/meta-cor-api
+  WEB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/meta-cor-web
+  DEPLOY_DIR: /home/${{ secrets.EC2_USER }}/meta-cor
+
+jobs:
+  ci:
+    name: Typecheck & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Dependency audit (non-blocking)
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
+
+  build-push:
+    name: Build & push images
+    needs: ci
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.api
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+            ${{ env.API_IMAGE }}:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.web
+          push: true
+          build-args: VITE_SITE_URL=${{ secrets.SITE_URL }}
+          tags: |
+            ${{ env.WEB_IMAGE }}:${{ github.sha }}
+            ${{ env.WEB_IMAGE }}:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: ${{ secrets.SITE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+      - name: Upload compose file
+        run: |
+          SSH="ssh -i ~/.ssh/id_deploy ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}"
+          $SSH "mkdir -p ${{ env.DEPLOY_DIR }}"
+          scp -i ~/.ssh/id_deploy deploy/docker-compose.yml \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.DEPLOY_DIR }}/docker-compose.yml
+      - name: Pull & restart
+        env:
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL }}
+          SEED_ADMIN_EMAIL: ${{ secrets.SEED_ADMIN_EMAIL }}
+          SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
+        run: |
+          ssh -i ~/.ssh/id_deploy ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} bash -s <<REMOTE
+          set -euo pipefail
+          cd ${{ env.DEPLOY_DIR }}
+          umask 077
+          cat > .env <<ENVF
+          DOCKERHUB_USERNAME=$DH_USER
+          TAG=${{ github.sha }}
+          JWT_SECRET=$JWT_SECRET
+          SITE_URL=$SITE_URL
+          COOKIE_SECURE=false
+          WEB_PORT=8083
+          SEED_ADMIN_EMAIL=$SEED_ADMIN_EMAIL
+          SEED_ADMIN_PASSWORD=$SEED_ADMIN_PASSWORD
+          ENVF
+          echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
+          docker compose pull
+          docker compose up -d --remove-orphans
+          docker compose exec -T api npx tsx src/seed.ts
+          docker logout
+          docker image prune -f
+          REMOTE
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://${{ secrets.EC2_HOST }}:8083/api/settings/public" || true)
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 5
+          done
+          echo "Health check failed"; exit 1
