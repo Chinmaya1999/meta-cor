@@ -15,9 +15,9 @@ permissions:
   contents: read
 
 env:
-  API_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/meta-cor-api
-  WEB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/meta-cor-web
-  DEPLOY_DIR: /home/${{ secrets.EC2_USER }}/meta-cor
+  API_IMAGE: awsmallick1999/meta-cor-api
+  WEB_IMAGE: awsmallick1999/meta-cor-web
+  DEPLOY_DIR: meta-cor
 
 jobs:
   ci:
@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 10
     environment:
       name: production
-      url: ${{ secrets.SITE_URL }}
+      url: http://3.111.214.203:8083
     steps:
       - uses: actions/checkout@v4
       - name: Configure SSH
